@@ -1,25 +1,35 @@
-const winston = require('winston');
+import winston from 'winston';
 
-// Define log format
-const logFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-  winston.format.printf(
-    (info) => `${info.timestamp} | ${info.level.toUpperCase()} | ${info.message}`
-  )
-);
-
-// Create logger instance
 const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: logFormat,
-  transports: [
-    // Console transport
-    new winston.transports.Console(),
-    // File transport for errors
-    new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
-    // File transport for all logs
-    new winston.transports.File({ filename: 'logs/combined.log' })
-  ],
+    level: 'info',
+    format: winston.format.json(),
+    defaultMeta: { service: 'mcp-server' },
+    transports: [
+        new winston.transports.Console({
+            format: winston.format.combine(
+                winston.format.colorize(),
+                winston.format.simple()
+            )
+        })
+    ]
 });
 
-module.exports = logger;
+// Add a custom error logger
+logger.error = (err) => {
+    if (err instanceof Error) {
+        logger.log({
+            level: 'error',
+            message: err.message,
+            stack: err.stack,
+            name: err.name,
+            statusCode: err.statusCode || 500 // Custom errors might have statusCode
+        });
+    } else {
+        logger.log({
+            level: 'error',
+            message: err
+        });
+    }
+};
+
+export default logger;

@@ -1,5 +1,5 @@
-const MCPServer = require('./mcpServer');
-const logger = require('./utils/logger');
+import MCPServer from './mcpServer.js';
+import logger from './utils/logger.js';
 
 async function main() {
     const mcpServer = new MCPServer();

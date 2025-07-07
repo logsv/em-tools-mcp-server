@@ -72,6 +72,47 @@ node src/index.js
 
 The MCP server communicates via standard input/output (StdIO) and is designed to be connected by an MCP client or host application (e.g., an LLM application or an IDE with MCP client capabilities).
 
+To configure an MCP host to launch this server, you might use a configuration similar to this (note the `PORT` environment variable for HTTP transport):
+
+```json
+{
+  "command": "node",
+  "args": ["src/index.js"],
+  "cwd": "/path/to/your/mcp-server",
+  "env": {
+    "PORT": "3000",
+    "JIRA_API_EMAIL": "your-email@example.com",
+    "JIRA_API_TOKEN": "your-jira-api-token",
+    "JIRA_BASE_URL": "https://your-domain.atlassian.net",
+    "NOTION_API_KEY": "your-notion-api-key",
+    "NOTION_DATABASE_ID": "your-notion-database-id",
+    "GOOGLE_CALENDAR_CLIENT_ID": "your-google-client-id",
+    "GOOGLE_CALENDAR_CLIENT_SECRET": "your-google-client-secret",
+    "GOOGLE_CALENDAR_REDIRECT_URI": "http://localhost:3000/oauth2callback"
+  }
+}
+```
+
+### Local Testing
+
+To run the server with HTTP transport enabled, use the `PORT` environment variable:
+
+```bash
+PORT=3000 npm start
+```
+
+**Health-check endpoint:**
+
+```bash
+curl http://localhost:3000/health
+```
+
+**Smoke-test a resource route (e.g., `/tools`):**
+
+```bash
+curl http://localhost:3000/tools
+```
+
 ### Connecting with a Cloud Client (MCP Host)
 
 To connect to this MCP server from a cloud-based MCP host or LLM application, you will typically need to:

@@ -1,22 +1,54 @@
-const JiraClient = require('jira-client');
-const logger = require('../utils/logger');
+import JiraClient from 'jira-client';
+import logger from '../utils/logger.js';
+import { NotFoundError, AuthenticationError, ValidationError, CustomError } from '../utils/errors.js';
+import { z } from 'zod';
+
+// Define schemas for input validation
+const CreateJiraTaskSchema = z.object({
+  project_key: z.string().min(1, "Project key cannot be empty"),
+  summary: z.string().min(1, "Summary cannot be empty"),
+  description: z.string().optional(),
+  issue_type: z.string().default('Task'),
+  assignee: z.string().optional(),
+  priority: z.string().optional(),
+  due_date: z.string().optional() // Assuming YYYY-MM-DD format
+});
+
+const UpdateJiraTaskSchema = z.object({
+  summary: z.string().min(1, "Summary cannot be empty").optional(),
+  description: z.string().optional(),
+  status: z.string().optional(),
+  assignee: z.string().optional(),
+  priority: z.string().optional(),
+  due_date: z.string().optional() // Assuming YYYY-MM-DD format
+}).refine(data => Object.keys(data).length > 0, { message: "At least one field must be provided for update" });
 
 class JiraService {
   constructor() {
-    try {
-      this.client = new JiraClient({
-        protocol: 'https',
-        host: process.env.JIRA_HOST,
-        username: process.env.JIRA_USERNAME,
-        password: process.env.JIRA_API_TOKEN,
-        apiVersion: '2',
-        strictSSL: true
-      });
-      logger.info('Jira client initialized successfully');
-    } catch (error) {
-      logger.error(`Failed to initialize Jira client: ${error.message}`);
-      throw error;
+    const { JIRA_HOST, JIRA_USERNAME, JIRA_API_TOKEN, NODE_ENV } = process.env;
+
+    if (!JIRA_HOST || !JIRA_USERNAME || !JIRA_API_TOKEN) {
+      logger.warn('Jira API credentials not provided.');
+      
+      // In development mode, continue without throwing an error
+      if (NODE_ENV === 'development') {
+        logger.info('Running in development mode without Jira credentials');
+        this.client = null;
+        return;
+      } else {
+        throw new AuthenticationError('Jira API credentials not provided.');
+      }
     }
+
+    this.client = new JiraClient({
+      protocol: 'https',
+      host: JIRA_HOST,
+      username: JIRA_USERNAME,
+      password: JIRA_API_TOKEN,
+      apiVersion: '2',
+      strictSSL: true
+    });
+    logger.info('Jira client initialized successfully');
   }
 
   /**
@@ -62,8 +94,14 @@ class JiraService {
         total: issues.total
       };
     } catch (error) {
-      logger.error(`Error getting Jira tasks: ${error.message}`);
-      throw error;
+      logger.error(error);
+      if (error.statusCode === 401) {
+        throw new AuthenticationError('Failed to authenticate with Jira. Check your credentials.');
+      } else if (error.statusCode === 404) {
+        throw new NotFoundError('Jira resource not found.');
+      } else {
+        throw new CustomError(`Error getting Jira tasks: ${error.message}`, error.statusCode);
+      }
     }
   }
 
@@ -79,8 +117,14 @@ class JiraService {
       });
       return this._formatIssue(issue);
     } catch (error) {
-      logger.error(`Error getting Jira task: ${error.message}`);
-      throw error;
+      logger.error(error);
+      if (error.statusCode === 401) {
+        throw new AuthenticationError('Failed to authenticate with Jira. Check your credentials.');
+      } else if (error.statusCode === 404) {
+        throw new NotFoundError(`Jira task with ID ${taskId} not found.`);
+      } else {
+        throw new CustomError(`Error getting Jira task: ${error.message}`, error.statusCode);
+      }
     }
   }
 
@@ -91,7 +135,9 @@ class JiraService {
    */
   async createTask(taskData) {
     try {
-      const { project_key, summary, description, issue_type = 'Task', assignee, priority, due_date } = taskData;
+      const validatedData = CreateJiraTaskSchema.parse(taskData);
+
+      const { project_key, summary, description, issue_type, assignee, priority, due_date } = validatedData;
       
       const issueData = {
         fields: {
@@ -121,8 +167,16 @@ class JiraService {
       const issue = await this.client.addNewIssue(issueData);
       return await this.getTask(issue.key);
     } catch (error) {
-      logger.error(`Error creating Jira task: ${error.message}`);
-      throw error;
+      logger.error(error);
+      if (error instanceof z.ZodError) {
+        throw new ValidationError(`Invalid input for creating Jira task: ${error.errors.map(e => e.message).join(', ')}`);
+      } else if (error.statusCode === 401) {
+        throw new AuthenticationError('Failed to authenticate with Jira. Check your credentials.');
+      } else if (error.statusCode === 400) {
+        throw new ValidationError('Invalid request to Jira API. Check provided data.');
+      } else {
+        throw new CustomError(`Error creating Jira task: ${error.message}`, error.statusCode);
+      }
     }
   }
 
@@ -134,7 +188,8 @@ class JiraService {
    */
   async updateTask(taskId, taskData) {
     try {
-      const { summary, description, status, assignee, priority, due_date } = taskData;
+      const validatedData = UpdateJiraTaskSchema.parse(taskData);
+      const { summary, description, status, assignee, priority, due_date } = validatedData;
       
       const issueData = {
         fields: {}
@@ -160,7 +215,9 @@ class JiraService {
         issueData.fields.duedate = due_date;
       }
       
-      await this.client.updateIssue(taskId, issueData);
+      if (Object.keys(issueData.fields).length > 0) {
+        await this.client.updateIssue(taskId, issueData);
+      }
       
       // Handle status transition if provided
       if (status) {
@@ -178,8 +235,18 @@ class JiraService {
       
       return await this.getTask(taskId);
     } catch (error) {
-      logger.error(`Error updating Jira task: ${error.message}`);
-      throw error;
+      logger.error(error);
+      if (error instanceof z.ZodError) {
+        throw new ValidationError(`Invalid input for updating Jira task: ${error.errors.map(e => e.message).join(', ')}`);
+      } else if (error.statusCode === 401) {
+        throw new AuthenticationError('Failed to authenticate with Jira. Check your credentials.');
+      } else if (error.statusCode === 404) {
+        throw new NotFoundError(`Jira task with ID ${taskId} not found.`);
+      } else if (error.statusCode === 400) {
+        throw new ValidationError('Invalid request to Jira API. Check provided data.');
+      } else {
+        throw new CustomError(`Error updating Jira task: ${error.message}`, error.statusCode);
+      }
     }
   }
 
@@ -196,8 +263,56 @@ class JiraService {
         name: project.name
       }));
     } catch (error) {
-      logger.error(`Error getting Jira projects: ${error.message}`);
-      throw error;
+      logger.error(error);
+      if (error.statusCode === 401) {
+        throw new AuthenticationError('Failed to authenticate with Jira. Check your credentials.');
+      } else {
+        throw new CustomError(`Error getting Jira projects: ${error.message}`, error.statusCode);
+      }
+    }
+  }
+
+  /**
+   * Get all issue types
+   * @returns {Promise<Array>} - Array of issue types
+   */
+  async getIssueTypes() {
+    try {
+      const issueTypes = await this.client.listIssueTypes();
+      return issueTypes.map(issueType => ({
+        id: issueType.id,
+        name: issueType.name,
+        description: issueType.description
+      }));
+    } catch (error) {
+      logger.error(error);
+      if (error.statusCode === 401) {
+        throw new AuthenticationError('Failed to authenticate with Jira. Check your credentials.');
+      } else {
+        throw new CustomError(`Error getting Jira issue types: ${error.message}`, error.statusCode);
+      }
+    }
+  }
+
+  /**
+   * Get all priorities
+   * @returns {Promise<Array>} - Array of priorities
+   */
+  async getPriorities() {
+    try {
+      const priorities = await this.client.getPriorities();
+      return priorities.map(priority => ({
+        id: priority.id,
+        name: priority.name,
+        description: priority.description
+      }));
+    } catch (error) {
+      logger.error(error);
+      if (error.statusCode === 401) {
+        throw new AuthenticationError('Failed to authenticate with Jira. Check your credentials.');
+      } else {
+        throw new CustomError(`Error getting Jira priorities: ${error.message}`, error.statusCode);
+      }
     }
   }
 
@@ -223,4 +338,4 @@ class JiraService {
   }
 }
 
-module.exports = JiraService;
+export default JiraService;
