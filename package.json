@@ -1,0 +1,36 @@
+{
+  "name": "em-tools-mcp-server",
+  "version": "1.0.0",
+  "description": "Multi-Channel Platform server for Engineering Manager tools integration",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest"
+  },
+  "keywords": [
+    "engineering manager",
+    "jira",
+    "google calendar",
+    "notion",
+    "integration"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.15.0",
+    "@notionhq/client": "^2.2.13",
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "googleapis": "^128.0.0",
+    "jira-client": "^8.2.2",
+    "winston": "^3.11.0",
+    "zod": "^3.25.75"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.1"
+  }
+}
