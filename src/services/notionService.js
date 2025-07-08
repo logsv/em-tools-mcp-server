@@ -1,24 +1,62 @@
+import { Client as NotionClient } from '@notionhq/client';
+import logger from '../utils/logger.js';
+import { AuthenticationError } from '../utils/errors.js';
+
 class NotionService {
   constructor() {
-    console.log('NotionService initialized');
+    const { NOTION_API_KEY } = process.env;
+    if (!NOTION_API_KEY) {
+      logger.warn('Notion API key not provided.');
+      this.client = null;
+      return;
+    }
+    this.client = new NotionClient({ auth: NOTION_API_KEY });
+    logger.info('NotionService initialized');
   }
 
   async getDoc(docId) {
-    // Return a dummy document
-    return { id: docId, title: "Dummy Notion Doc", content: "This is a test document." };
+    if (!this.client) return {};
+    try {
+      const page = await this.client.pages.retrieve({ page_id: docId });
+      return page;
+    } catch (error) {
+      logger.error(error);
+      return {};
+    }
   }
 
   async searchDocs() {
-    // Return a list of dummy documents
-    return [
-      { id: "1", title: "Doc 1", content: "Content 1" },
-      { id: "2", title: "Doc 2", content: "Content 2" }
-    ];
+    if (!this.client) return [];
+    try {
+      const res = await this.client.search({});
+      return res.results || [];
+    } catch (error) {
+      logger.error(error);
+      return [];
+    }
   }
 
   async createDoc(title, parentId, content) {
-    // Return a dummy created document
-    return { id: "new-doc", title, parentId, content };
+    if (!this.client) return {};
+    try {
+      const response = await this.client.pages.create({
+        parent: { database_id: parentId },
+        properties: {
+          title: [
+            {
+              text: {
+                content: title,
+              },
+            },
+          ],
+        },
+        // Notion API for content is more complex; this is a minimal example
+      });
+      return response;
+    } catch (error) {
+      logger.error(error);
+      return {};
+    }
   }
 }
 
