@@ -34,31 +34,7 @@ A Model Context Protocol (MCP) server for integrating engineering manager tools 
    cp .env.example .env
    ```
 
-4. Update the `.env` file with your API credentials and configuration.
-
-## API Credentials Setup
-
-### Jira API
-
-1. Log in to your Atlassian account
-2. Go to Account Settings > Security > Create and manage API tokens
-3. Create a new API token and copy it
-4. Add your Jira host, email, and API token to the `.env` file
-
-### Google Calendar API
-
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project
-3. Enable the Google Calendar API
-4. Create OAuth 2.0 credentials
-5. Add the client ID, client secret, and redirect URI to the `.env` file
-
-### Notion API
-
-1. Go to [Notion Integrations](https://www.notion.so/my-integrations)
-2. Create a new integration
-3. Copy the API key
-4. Add the API key to the `.env` file
+4. Update the `.env` file with your API credentials and configuration (optional, for local testing).
 
 ## Usage
 
@@ -67,107 +43,88 @@ A Model Context Protocol (MCP) server for integrating engineering manager tools 
 To start the MCP server, run:
 
 ```bash
-node src/index.js
+npm start
 ```
 
-The MCP server communicates via standard input/output (StdIO) and is designed to be connected by an MCP client or host application (e.g., an LLM application or an IDE with MCP client capabilities).
+The MCP server communicates via the MCP protocol and is designed to be connected by an MCP client or host application (e.g., an LLM application, Claude Desktop, or an IDE with MCP client capabilities).
 
-To configure an MCP host to launch this server, you might use a configuration similar to this (note the `PORT` environment variable for HTTP transport):
+---
 
-```json
-{
-  "command": "node",
-  "args": ["src/index.js"],
-  "cwd": "/path/to/your/mcp-server",
-  "env": {
-    "PORT": "3000",
-    "JIRA_API_EMAIL": "your-email@example.com",
-    "JIRA_API_TOKEN": "your-jira-api-token",
-    "JIRA_BASE_URL": "https://your-domain.atlassian.net",
-    "NOTION_API_KEY": "your-notion-api-key",
-    "NOTION_DATABASE_ID": "your-notion-database-id",
-    "GOOGLE_CALENDAR_CLIENT_ID": "your-google-client-id",
-    "GOOGLE_CALENDAR_CLIENT_SECRET": "your-google-client-secret",
-    "GOOGLE_CALENDAR_REDIRECT_URI": "http://localhost:3000/oauth2callback"
-  }
-}
-```
+## Connecting to the MCP Server
 
-### Local Testing
+You can connect to the MCP server using either an official MCP client (like `npx mcp-remote`) or by making raw JSON-RPC requests (e.g., with `curl`).
 
-To run the server with HTTP transport enabled, use the `PORT` environment variable:
+### 1. Using npx mcp-remote (Recommended)
+
+This is the easiest way to connect, list tools, and interact with the server:
 
 ```bash
-PORT=3000 npm start
+npx mcp-remote http://localhost:3000/mcp
 ```
+- This will automatically initialize a session, list available tools, and let you interact with them.
+- You do **not** need to manually manage session IDs; the client handles it for you.
 
-**Health-check endpoint:**
+### 2. Using JSON-RPC (curl/manual)
 
+If you want to interact directly (for scripting or debugging), follow these steps:
+
+#### a. Initialize a session
 ```bash
-curl http://localhost:3000/health
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
 ```
+- Copy the `mcp-session-id` from the response headers (if present) or from the response body if your client supports it.
 
-**Smoke-test a resource route (e.g., `/tools`):**
-
+#### b. List available tools
 ```bash
-curl http://localhost:3000/tools
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "mcp-session-id: <YOUR_SESSION_ID>" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"list_tools"}'
 ```
 
-### Connecting with a Cloud Client (MCP Host)
+#### c. Authenticate (login) before using integration tools
+- Use the login tool for the integration you want (e.g., Jira, Calendar, Notion).
+- Example (Jira login):
+```bash
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "mcp-session-id: <YOUR_SESSION_ID>" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"get_login_jira","params":{"username":"<your-email>","apiToken":"<your-token>","host":"<your-jira-host>"}}'
+```
+- After login, you can use Jira tools in the same session.
 
-To connect to this MCP server from a cloud-based MCP host or LLM application, you will typically need to:
+> **Note:** If you call an integration tool/resource without logging in, you will receive a friendly error message prompting you to login first.
 
-1.  **Deploy the MCP Server**: Deploy this Node.js application to a cloud environment (e.g., AWS EC2, Google Cloud Run, Azure App Service, or a Kubernetes cluster). Ensure it's accessible from your MCP host.
-2.  **Expose StdIO**: The MCP server uses StdIO for communication. In a cloud environment, this usually means running the server as a process that the MCP host can interact with via its standard input and output streams. The specific setup depends on the MCP host's capabilities and how it expects to connect to an external MCP server.
-3.  **MCP Host Configuration**: Configure your MCP host application (e.g., Claude, an AI-powered IDE, or a custom LLM application) to connect to this server. This often involves specifying the server's executable path or a network endpoint if the MCP host supports network-based connections.
+---
 
-Refer to the documentation of your specific MCP host or LLM application for detailed instructions on connecting to an external MCP server.
+### Session-Based Flow (IMPORTANT)
 
-### MCP Server Resources and Tools
+- **All requests (including tool listing) require session initialization.**
+- MCP clients (like `npx mcp-remote` or Claude Desktop) will automatically initialize a session and handle session IDs for you.
+- If you use curl or a custom client, you must first initialize a session, then use the returned session ID for all subsequent requests.
 
-This MCP server exposes the following resources and tools:
+### Login Flow for Integrations
 
-#### Jira
+- **Jira:** Use `get_login_jira` to authenticate. All Jira tools/resources require login.
+- **Google Calendar:** Use `get_login_calendar` to authenticate. All Calendar tools/resources require login.
+- **Notion:** Use `get_login_notion` to authenticate. All Notion tools/resources require login.
+- If you call an integration tool/resource without logging in, you will receive a friendly error message prompting you to login first.
 
--   **Resource**: `jira://tasks/{taskId}`
-    -   **Description**: Retrieve a specific Jira task by ID or list all tasks.
--   **Tool**: `create-jira-task`
-    -   **Description**: Creates a new Jira task.
-    -   **Input Schema**: `{ summary: string, description?: string, projectKey: string, issueType: string }`
--   **Tool**: `update-jira-task`
-    -   **Description**: Updates an existing Jira task.
-    -   **Input Schema**: `{ taskId: string, summary?: string, description?: string }`
-
-#### Google Calendar
-
--   **Resource**: `calendar://meetings/{meetingId}`
-    -   **Description**: Retrieve a specific calendar meeting by ID or list all meetings.
--   **Tool**: `create-calendar-meeting`
-    -   **Description**: Creates a new calendar meeting.
-    -   **Input Schema**: `{ summary: string, description?: string, startDateTime: string, endDateTime: string, attendees?: string[] }`
-
-#### Notion
-
--   **Resource**: `notion://documents/{docId}`
-    -   **Description**: Retrieve a specific Notion document by ID or list all documents.
--   **Tool**: `create-notion-document`
-    -   **Description**: Creates a new Notion document.
-    -   **Input Schema**: `{ title: string, parentId: string, content?: string }`
-
-## Project Structure
+### Project Structure
 
 ```
 ├── src/
 │   ├── index.js           # Main entry point for the MCP server
-│   ├── mcpServer.js       # MCP server implementation with resource and tool registrations
 │   ├── services/          # Service implementations for external APIs
 │   │   ├── jiraService.js
 │   │   ├── calendarService.js
 │   │   └── notionService.js
 │   └── utils/             # Utility functions (e.g., logger)
 ├── .env                   # Environment variables
-├── .env.example          # Example environment variables
-└── package.json          # Project dependencies
+├── .env.example           # Example environment variables
+└── package.json           # Project dependencies
 ```
 
 ## License
